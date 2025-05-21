@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>真菌学名去重计数工具</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f9ff;
+            color: #333;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        h1 {
+            color: #2c5e9e;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 12px;
+            border: 1px solid #b8d4ff;
+            border-radius: 8px;
+            font-family: monospace;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            border-color: #4a90e2;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(74,144,226,0.2);
+        }
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 10px auto;
+        }
+        .button-group button {
+            width: auto;
+            min-width: 100px;
+            padding: 10px 20px;
+            white-space: nowrap;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        #processBtn {
+            background-color: #4a90e2;
+        }
+        #processBtn:hover {
+            background-color: #3a7bc8;
+            transform: translateY(-1px);
+        }
+        #clearBtn {
+            background-color: #e74c3c;
+        }
+        #clearBtn:hover {
+            background-color: #c0392b;
+            transform: translateY(-1px);
+        }
+        #copyBtn {
+            background-color: #2ecc71;
+        }
+        #copyBtn:hover {
+            background-color: #27ae60;
+            transform: translateY(-1px);
+        }
+        h2 {
+            color: #2c5e9e;
+            margin: 10px 0 5px 0;
+            font-size: 1.2em;
+        }
+        .result {
+            border: 1px solid #b8d4ff;
+            padding: 12px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            background-color: #fff;
+            min-height: 100px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            font-family: monospace;
+        }
+        .instructions {
+            background-color: #e6f0ff;
+            padding: 12px;
+            border-left: 4px solid #4a90e2;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+            color: #2c5e9e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>真菌学名去重计数工具</h1>
+        
+        <div class="instructions">
+            <p><strong>使用说明：</strong></p>
+            <p>1. 在下方输入框中输入多行文本，每行包含三个列（中文学名、拉丁文学名、百分比），以空白符分隔</p>
+            <p>2. 拉丁文学名可能包含空格和特殊字符</p>
+            <p>3. 点击"处理数据"按钮后，程序会去除重复的拉丁文学名行，计算平均百分比，并显示重复次数</p>
+            <p>4. 结果将按照属名分组，所有条目按重复次数降序排列，次数相同时按百分比降序排列</p>
+        </div>
+
+        <textarea id="inputText" placeholder="例如：
+宽鳞角孔菌   Cerioporus squamosus    40.93%
+翘鳞肉齿菌   Sarcodon imbricatus 6.64%
+欧洲口蘑    Tricholoma caligatum    3.37%
+宽鳞角孔菌   Cerioporus squamosus    11.93%
+菌核多孔菌   Polyporus tuberaster    2.03%
+柔蜡孔菌 Cerioporus mollis   20.93%
+柔蜡孔菌  Cerioporus mollis 32.93%
+"></textarea>
+        
+        <div class="button-group">
+            <button id="processBtn">处理数据</button>
+            <button id="clearBtn">清空</button>
+            <button id="copyBtn">复制结果</button>
+        </div>
+        
+        <h2>处理结果：</h2>
+        <div id="outputResult" class="result"></div>
+    </div>
+    <script>
+        // 计算字符串的显示宽度（中文算2个字符，拉丁文算1个）
+        function getDisplayWidth(str) {
+            let width = 0;
+            for (let i = 0; i < str.length; i++) {
+                const charCode = str.charCodeAt(i);
+                width += (charCode > 255 || charCode === 12288) ? 2 : 1; // 中文或全角空格算2
+            }
+            return width;
+        }
+
+        // 生成固定显示宽度的字符串（考虑中英文字符宽度差异）
+        function formatField(value, targetWidth, alignLeft = true) {
+            const actualWidth = getDisplayWidth(value);
+            const padding = Math.max(0, targetWidth - actualWidth);
+            
+            if (alignLeft) {
+                return value + ' '.repeat(padding);
+            } else {
+                return ' '.repeat(padding) + value;
+            }
+        }
+
+        function processData() {
+            const inputText = document.getElementById('inputText').value;
+            const outputResult = document.getElementById('outputResult');
+            
+            if (!inputText.trim()) {
+                outputResult.textContent = "请输入有效数据！";
+                return;
+            }
+
+            const lines = inputText.split('\n').filter(line => line.trim());
+            const latinNameMap = new Map();
+            const nameInfoMap = new Map();
+            const percentageSumMap = new Map();
+            const genusMap = new Map();
+            
+            // 第一遍：统计数据
+            lines.forEach(line => {
+                // 更灵活的正则表达式匹配三列
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 3) {
+                    const chineseName = parts[0];
+                    // 拉丁名可能包含空格，所以从第二个到倒数第二个部分
+                    const latinName = parts.slice(1, -1).join(' ');
+                    const percentage = parseFloat(parts[parts.length-1].replace('%', ''));
+                    
+                    latinNameMap.set(latinName, (latinNameMap.get(latinName) || 0) + 1);
+                    percentageSumMap.set(latinName, (percentageSumMap.get(latinName) || 0) + percentage);
+                    if (!nameInfoMap.has(latinName)) {
+                        nameInfoMap.set(latinName, { chineseName });
+                    }
+                    
+                    // 提取属名（第一个大写字母开头的单词）
+                    const genusMatch = latinName.match(/^[A-Z][a-z]+/);
+                    if (genusMatch) {
+                        const genus = genusMatch[0];
+                        if (!genusMap.has(genus)) {
+                            genusMap.set(genus, new Set());
+                        }
+                        genusMap.get(genus).add(latinName);
+                    }
+                }
+            });
+            
+            // 创建所有物种的统一列表
+            const allSpecies = Array.from(latinNameMap.entries()).map(([latinName, count]) => ({
+                latinName,
+                count,
+                avgPercentage: (percentageSumMap.get(latinName) / count).toFixed(2),
+                info: nameInfoMap.get(latinName),
+                // 判断是否有属名
+                hasGenus: latinName.match(/^[A-Z][a-z]+/) !== null,
+                // 提取属名
+                genus: (latinName.match(/^[A-Z][a-z]+/) || [null])[0]
+            }));
+            
+            // 统一排序：先按重复次数降序，次数相同时按百分比降序
+            allSpecies.sort((a, b) => {
+                if (b.count !== a.count) {
+                    return b.count - a.count;
+                }
+                return parseFloat(b.avgPercentage) - parseFloat(a.avgPercentage);
+            });
+            
+            // 按属名分组
+            const groupedResults = [];
+            const genusGroups = new Map();
+            
+            // 先处理有属名的物种
+            allSpecies.filter(s => s.hasGenus).forEach(species => {
+                if (!genusGroups.has(species.genus)) {
+                    genusGroups.set(species.genus, []);
+                }
+                genusGroups.get(species.genus).push(species);
+            });
+            
+            // 处理无属名的物种
+            const nonGenusSpecies = allSpecies.filter(s => !s.hasGenus);
+            
+            // 生成分组结果
+            // 1. 先处理有属名的组，按组内最高排序指标排序
+            const sortedGenusGroups = Array.from(genusGroups.entries())
+                .map(([genus, speciesList]) => ({
+                    genus,
+                    species: speciesList,
+                    // 组排序依据：组内最高count和对应的percentage
+                    sortKey: speciesList[0].count * 10000 + parseFloat(speciesList[0].avgPercentage)
+                }))
+                .sort((a, b) => b.sortKey - a.sortKey);
+            
+            // 2. 然后处理无属名的物种
+            const allResults = [];
+            
+            // 添加有属名的组
+            sortedGenusGroups.forEach(group => {
+                // 计算当前组内各列的最大显示宽度
+                let maxChineseWidth = 0;
+                let maxLatinWidth = 0;
+                
+                group.species.forEach(species => {
+                    maxChineseWidth = Math.max(maxChineseWidth, getDisplayWidth(species.info.chineseName));
+                    maxLatinWidth = Math.max(maxLatinWidth, getDisplayWidth(species.latinName));
+                });
+                
+                // 生成组内对齐的行
+                group.species.forEach(species => {
+                    const info = species.info;
+                    
+                    // 格式化各列
+                    const chinesePart = formatField(info.chineseName, maxChineseWidth);
+                    const latinPart = formatField(species.latinName, maxLatinWidth);
+                    const percentagePart = formatField(species.avgPercentage + '%', 6, false); // 右对齐百分比
+                    const countPart = species.count > 1 ? ` ×${species.count}` : '';
+                    
+                    allResults.push(`${chinesePart}  ${latinPart}  ${percentagePart}${countPart}`);
+                });
+            });
+            
+            // 添加无属名的物种
+            if (nonGenusSpecies.length > 0) {
+                // 计算无属名物种的列宽
+                let maxChineseWidth = 0;
+                let maxLatinWidth = 0;
+                
+                nonGenusSpecies.forEach(species => {
+                    maxChineseWidth = Math.max(maxChineseWidth, getDisplayWidth(species.info.chineseName));
+                    maxLatinWidth = Math.max(maxLatinWidth, getDisplayWidth(species.latinName));
+                });
+                
+                nonGenusSpecies.forEach(species => {
+                    const info = species.info;
+                    
+                    // 格式化各列
+                    const chinesePart = formatField(info.chineseName, maxChineseWidth);
+                    const latinPart = formatField(species.latinName, maxLatinWidth);
+                    const percentagePart = formatField(species.avgPercentage + '%', 6, false);
+                    const countPart = species.count > 1 ? ` ×${species.count}` : '';
+                    
+                    allResults.push(`${chinesePart}  ${latinPart}  ${percentagePart}${countPart}`);
+                });
+            }
+            
+            // 设置结果
+            outputResult.textContent = allResults.join('\n');
+        }
+
+        function clearAll() {
+            document.getElementById('inputText').value = '';
+            document.getElementById('outputResult').textContent = '';
+        }
+
+        function copyResult() {
+            const outputResult = document.getElementById('outputResult');
+            const textToCopy = outputResult.textContent;
+            
+            if (!textToCopy.trim()) {
+                alert('没有可复制的内容！');
+                return;
+            }
+
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(textToCopy)
+                    .then(() => alert('复制成功！'))
+                    .catch(err => {
+                        console.error('复制失败:', err);
+                        fallbackCopy(textToCopy);
+                    });
+            } else {
+                fallbackCopy(textToCopy);
+            }
+        }
+
+        function fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                alert('复制成功！');
+            } catch (err) {
+                console.error('复制失败:', err);
+                alert('复制失败，请手动选择文本复制');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // 初始化事件监听
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('processBtn').addEventListener('click', processData);
+            document.getElementById('clearBtn').addEventListener('click', clearAll);
+            document.getElementById('copyBtn').addEventListener('click', copyResult);
+        });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/service-worker.js')
+                   .then(function(registration) {
+                        console.log('Service Worker 注册成功:', registration);
+                    })
+                   .catch(function(error) {
+                        console.log('Service Worker 注册失败:', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
