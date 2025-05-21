@@ -2,10 +2,10 @@
 const CACHE_NAME = 'fungal-counter-v1';
 // 需要缓存的文件列表
 const urlsToCache = [
-    'index.html',
-    'manifest.json',
-    'icon-192x192.png',
-    'icon-512x512.png'
+    '/TaxonTidy/index.html',
+    '/TaxonTidy/manifest.json',
+    '/TaxonTidy/icon-192x192.png',
+    '/TaxonTidy/icon-512x512.png'
 ];
 
 // 安装 Service Worker
